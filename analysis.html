@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>综合分析 · 数据综合分析评估平台</title>
+    <script>
+      // 主题引导：与控制台页一致，样式表加载前先行应用，避免深色主题白底闪烁。
+      (function () {
+        var root = document.documentElement;
+        try {
+          var theme = window.localStorage.getItem("theme");
+          root.dataset.theme = theme === "dark" ? "dark" : "light";
+          var bgImage = window.localStorage.getItem("ui-background-image");
+          var cardOpacity = window.localStorage.getItem("ui-card-opacity");
+          if (bgImage) {
+            root.style.setProperty(
+              "--bg-image",
+              'url("' + bgImage.replace(/"/g, "%22") + '")',
+            );
+          }
+          if (cardOpacity) root.style.setProperty("--card-opacity", cardOpacity);
+        } catch (error) {
+          root.dataset.theme = "light";
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="./css/dashboard.css" />
+    <link rel="stylesheet" href="./css/analysis.css" />
+    <script defer src="./vendor/axios.min.js"></script>
+    <script defer src="./vendor/echarts.min.js"></script>
+    <script defer src="./js/mock.js"></script>
+    <script defer src="./js/bundle-analysis.js"></script>
+    <!-- 离线演示版本：接口数据由 js/mock.js 本地模拟 -->
+  </head>
+  <body>
+    <header class="tools page-header">
+      <h1>综合分析</h1>
+      <nav class="platform-switch" aria-label="页面导航">
+        <a href="./index.html">控制台</a>
+        <span aria-hidden="true">/</span>
+        <a href="./analysis.html" aria-current="page">综合分析</a>
+      </nav>
+      <button id="refreshBtn" class="ghost" type="button" title="按当前选择重新聚合">
+        刷新数据
+      </button>
+      <button id="themeBtn" class="ghost" type="button" aria-pressed="false" title="在深色 / 浅色主题间切换">
+        主题：浅色
+      </button>
+    </header>
+
+    <div class="layout analysis-layout">
+      <aside class="side">
+        <section class="card">
+          <h2>数据集选择</h2>
+          <div class="picker-tabs" role="tablist" aria-label="选择模式">
+            <button
+              id="modeDataset"
+              class="picker-tab"
+              type="button"
+              role="tab"
+              aria-selected="true"
+            >
+              按数据集
+            </button>
+            <button
+              id="modeTag"
+              class="picker-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+            >
+              按词条
+            </button>
+          </div>
+          <input
+            id="datasetSearch"
+            type="search"
+            placeholder="搜索采集标签 / 数据集编号"
+            maxlength="100"
+            aria-label="搜索数据集"
+          />
+          <div class="picker-actions">
+            <button id="pickAll" class="ghost" type="button">勾选前 8 个</button>
+            <button id="pickNone" class="ghost" type="button">清空</button>
+          </div>
+          <div
+            id="datasetList"
+            class="dataset-picker"
+            role="group"
+            aria-label="可分析数据集列表"
+          ></div>
+          <p class="muted picker-hint" id="pickerHint">
+            最多同时对比 8 个数据集；雷达图各维度按所选数据集的最大值归一化。
+          </p>
+          <details id="importBox" class="import-box">
+            <summary>导入数据集（CSV / Excel）</summary>
+            <label class="field"
+              >主词条名
+              <input
+                id="importName"
+                type="text"
+                maxlength="100"
+                placeholder="例如：凹凸世界"
+            /></label>
+            <label class="field"
+              >数据文件
+              <input id="importFile" type="file" accept=".csv,.xlsx,.xls" /></label
+            ><div class="tools import-actions">
+              <button id="importSubmit" class="ghost" type="button" disabled>
+                上传并清洗
+              </button>
+            </div>
+            <p class="muted picker-hint">
+              支持系统清洗导出的 CSV / Excel（取第一张表），表头自动兼容旧版别名；导入后自动走清洗管线，完成后加入分析目录。
+            </p>
+          </details>
+        </section>
+
+        <section class="card">
+          <h2>分析口径</h2>
+          <label class="field"
+            >时间粒度
+            <select id="bucketSel">
+              <option value="month">按月</option>
+              <option value="week">按周</option>
+            </select></label
+          >
+          <label class="field"
+            >趋势指标
+            <select id="metricSel"></select
+          ></label>
+          <label class="field"
+            >统计口径
+            <select id="statSel">
+              <option value="avg">周期均值</option>
+              <option value="total">周期总量</option>
+            </select></label
+          >
+          <label class="field"
+            >高频标签数
+            <input id="topTags" type="number" min="5" max="30" step="1" value="12" />
+          </label>
+          <p class="muted picker-hint">
+            综合关注度 = 浏览 + 点赞 + 收藏 + 评论（小红书无浏览量时按其余三项计）。
+          </p>
+        </section>
+      </aside>
+
+      <main class="main">
+        <p id="analysisStatus" class="muted" role="status">加载中…</p>
+
+        <section class="kpi-row" id="kpiRow" aria-label="整体概览指标"></section>
+
+        <div class="chart-grid">
+          <section class="card chart-card trend-card">
+            <h2>整体关注度趋势</h2>
+            <div id="trendChart" class="chart" role="img" aria-label="整体关注度趋势图"></div>
+          </section>
+
+          <section class="card chart-card">
+            <h2>多角度设计倾向雷达</h2>
+            <div id="radarChart" class="chart" role="img" aria-label="多角度设计倾向雷达图"></div>
+          </section>
+
+          <section class="card chart-card">
+            <h2>高频标签构成</h2>
+            <div id="tagChart" class="chart" role="img" aria-label="高频标签构成图"></div>
+          </section>
+
+          <section class="card chart-card">
+            <h2>存在时间分布</h2>
+            <div id="existChart" class="chart" role="img" aria-label="存在时间分布图"></div>
+          </section>
+
+          <section class="card chart-card insight-card">
+            <h2>自动洞察</h2>
+            <ul id="insightList" class="insight-list"></ul>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+    <noscript>请启用 JavaScript 以使用综合分析页面。</noscript>
+  </body>
+</html>

@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>数据综合分析评估平台</title>
+    <script>
+      // 主题引导：在样式表加载前先行应用，避免深色主题出现白底闪烁。
+      // 读取 localStorage 缓存的主题、主背景图片与模块背景透明度；后台配置由 theme.js 加载后再同步。
+      (function () {
+        var root = document.documentElement;
+        try {
+          var theme = window.localStorage.getItem("theme");
+          root.dataset.theme = theme === "dark" ? "dark" : "light";
+          var bgImage = window.localStorage.getItem("ui-background-image");
+          var cardOpacity = window.localStorage.getItem("ui-card-opacity");
+          if (bgImage) {
+            root.style.setProperty(
+              "--bg-image",
+              'url("' + bgImage.replace(/"/g, "%22") + '")',
+            );
+          }
+          if (cardOpacity) root.style.setProperty("--card-opacity", cardOpacity);
+        } catch (error) {
+          root.dataset.theme = "light";
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="./css/dashboard.css" />
+    <script defer src="./vendor/axios.min.js"></script>
+    <script defer src="./js/mock.js"></script>
+    <script defer src="./js/bundle-app.js"></script>
+    <!-- 离线演示版本：接口数据由 js/mock.js 本地模拟 -->
+  </head>
+  <body>
+    <header class="tools page-header">
+      <h1>数据综合分析评估平台</h1>
+      <nav class="platform-switch" aria-label="选择采集平台">
+        <a id="platformPixiv" href="./index.html?platform=pixiv">Pixiv</a>
+        <span aria-hidden="true">/</span>
+        <a id="platformXhs" href="./index.html?platform=xhs">小红书</a>
+        <span aria-hidden="true">/</span>
+        <a href="./analysis.html">综合分析</a>
+      </nav>
+      <!-- <a href="/docs" target="_blank" rel="noopener">接口文档</a> -->
+      <button
+        id="settingsBtn"
+        class="ghost"
+        type="button"
+        aria-haspopup="dialog"
+        aria-controls="settingsDialog"
+      >
+        设置
+      </button>
+      <button
+        id="themeBtn"
+        class="ghost"
+        type="button"
+        aria-pressed="false"
+        title="在深色 / 浅色主题间切换"
+      >
+        主题：浅色
+      </button>
+    </header>
+    <div class="layout">
+      <aside class="side">
+        <section class="card">
+          <h2>作品排行</h2>
+          <div class="dataset-carousel">
+            <button
+              id="tagsPrev"
+              class="ghost"
+              aria-label="向左滑动采集标签"
+              disabled
+            >
+              ‹
+            </button>
+            <div
+              id="filtersTag"
+              class="dataset-track"
+              tabindex="0"
+              aria-label="采集标签，左右滑动切换数据集"
+            ></div>
+            <button
+              id="tagsNext"
+              class="ghost"
+              aria-label="向右滑动采集标签"
+              disabled
+            >
+              ›
+            </button>
+          </div>
+          <div class="rank-controls">
+            <label
+              >排序指标<select id="rankSort">
+                <option value="view_count">浏览量</option>
+                <option value="like_count">点赞量</option>
+                <option value="bookmark_count">收藏数</option>
+                <option value="comment_count">评论数</option>
+                <option value="create_date">发布时间</option>
+                <option value="crawl_time">采集时间</option>
+              </select></label
+            >
+            <label
+              >AI 筛选<select id="rankAi">
+                <option value="">全部</option>
+                <option value="是">AI</option>
+                <option value="否">非 AI</option>
+              </select></label
+            >
+            <label
+              >顺序<select id="rankOrder">
+                <option value="desc">从高到低 / 最新</option>
+                <option value="asc">从低到高 / 最早</option>
+              </select></label
+            >
+          </div>
+          <div
+            class="ranking-scroll"
+            tabindex="0"
+            aria-label="作品排行榜，可滚动"
+          >
+            <table class="rank-table">
+              <thead>
+                <tr>
+                  <th>作品名</th>
+                  <th id="rankColumn">浏览量</th>
+                </tr>
+              </thead>
+              <tbody id="filters"></tbody>
+            </table>
+          </div>
+          <div class="pager">
+            <button class="ghost" id="artPrev" disabled>上一页</button>
+            <form id="artJump" class="page-jump">
+              <label for="artPageInput">第</label
+              ><input
+                id="artPageInput"
+                type="number"
+                min="1"
+                value="1"
+                aria-label="跳转作品页码"
+                disabled
+              /><span id="artPage">/ 0 页</span
+              ><button type="submit" class="ghost" id="artJumpBtn" disabled>
+                跳转
+              </button>
+            </form>
+            <button class="ghost" id="artNext" disabled>下一页</button>
+          </div>
+        </section>
+        <section class="card">
+          <div class="tag-heading">
+            <h2>当前数据集高频标签</h2>
+            <span id="tagTotal" class="muted">总数：0个</span>
+          </div>
+          <div class="tag-list" tabindex="0" aria-label="高频标签，可滚动">
+            <table class="rank-table">
+              <thead>
+                <tr>
+                  <th>标签</th>
+                  <th id="tagCountSort" aria-sort="none">
+                    <button type="button" title="该标签下的作品数；点击切换排序方向">作品数<span id="tagCountArrow" aria-hidden="true"></span></button>
+                  </th>
+                  <th id="tagAiSort" aria-sort="none">
+                    <button type="button" title="该标签下 AI 作品数 ÷ 该标签作品总数；点击切换排序方向">AI率<span id="tagAiArrow" aria-hidden="true"></span></button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody id="tags"></tbody>
+            </table>
+          </div>
+        </section>
+      </aside>
+      <main class="main">
+        <div class="row2">
+          <div class="status-stack">
+            <section class="card" id="serviceStatusCard">
+              <h2>服务状态</h2>
+              <div class="service-status-row">
+                <div class="service-summary">
+                  <p id="status" role="status">连接中…</p>
+                  <span id="xhsLoginStatus" role="status">小红书：检查中…</span>
+                  <span id="latestTaskUpdate" class="muted">最近任务更新时间：—</span>
+                </div>
+                <div class="service-menu">
+                  <button id="serviceMenuBtn" class="ghost" aria-label="服务操作" aria-expanded="false" aria-controls="serviceMenu">…</button>
+                  <div id="serviceMenu" class="service-menu-panel" hidden>
+                    <button id="healthRefresh" class="ghost">检查数据库连接</button>
+                    <button id="xhsLoginBtn" class="ghost">小红书登录</button>
+                    <button id="xhsLogoutBtn" class="ghost">小红书退出</button>
+                  </div>
+                </div>
+              </div>
+              <div class="status-tasks">
+                <div class="tools">
+                  <h2>任务记录</h2>
+                  <span class="task-actions">
+                    <button id="taskClean" class="ghost">清理记录</button>
+                    <button id="taskRefresh" class="ghost">刷新任务</button>
+                  </span>
+                </div>
+                <div
+                  class="table-scroll"
+                  role="region"
+                  aria-label="任务记录列表"
+                >
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>任务</th>
+                        <th>状态与进度</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tasks"></tbody>
+                  </table>
+                </div>
+                <p id="taskError" class="error" role="status"></p>
+                <div class="pager">
+                  <button id="taskPrev" class="ghost" disabled>上一页</button
+                  ><span id="taskPage"></span
+                  ><button id="taskNext" class="ghost" disabled>下一页</button>
+                </div>
+                <div id="liveTask" class="live-task" role="status" aria-live="polite"></div>
+              </div>
+            </section>
+          </div>
+          <div class="collection-stack">
+            <section class="card">
+              <h2>创建采集任务</h2>
+              <form id="collectionForm">
+                <label for="tagInput">采集标签（多个标签用逗号分隔）</label
+                ><input
+                  id="tagInput"
+                  value="原神"
+                  required
+                  placeholder="例如：原神，明日方舟"
+                  autocomplete="off"
+                />
+                <div class="form-grid">
+                  <label
+                    >作品数量<input
+                      id="targetCount"
+                      type="number"
+                      min="1"
+                      max="1800"
+                      step="1"
+                      value="1000"
+                      required
+                  /></label>
+                  <label
+                    >数量范围<select id="countScope">
+                      <option value="total">全部标签合计</option>
+                      <option value="per_tag">每个标签分别计数</option>
+                    </select></label
+                  >
+                </div>
+                <label
+                  >采集模式<select id="mode">
+                    <option value="metadata_only">仅抓取，不下载图片</option>
+                    <option value="with_images">抓取并下载图片</option>
+                  </select></label
+                >
+                <div class="tools">
+                  <span class="muted">单次目标上限 1800 条</span
+                  ><button id="tagBtn" type="submit">开始采集</button>
+                </div>
+              </form>
+            </section>
+            <section class="card dataset-card">
+              <h2>数据集与清洗</h2>
+              <div class="src-bar">
+                <select
+                  id="docSelect"
+                  class="doc-select"
+                  aria-label="选择数据集"
+                ></select>
+                <button id="datasetRefresh" class="ghost">刷新</button>
+                <button id="cleanBtn" disabled>清洗此数据集</button>
+                <button id="aiTranslateBtn" disabled title="用 AI 翻译最新未命中标签、重建对照表，并用新表重洗当前数据集">
+                  AI 翻译标签并重洗
+                </button>
+              </div>
+              <div id="datasetInfo" class="muted"></div>
+              <div class="src-bar">
+                <button id="openDatasetFolder" class="ghost" type="button" disabled>
+                  打开文件存放地址
+                </button>
+              </div>
+
+              <details id="formulaBox" class="formula-box">
+                <summary>派生列公式（可选）</summary>
+                <p class="muted">
+                  支持 + - * / // % ** 和括号；字段名需与已有列名完全一致（如
+                  <code>浏览数</code>、<code>点赞数</code>）。可在"插入字段"下拉里直接选字段名。
+                </p>
+
+                <div id="formulaList"></div>
+
+                <div class="tools" style="justify-content: flex-end">
+                  <button id="formulaApply" type="button" disabled>
+                    对已清洗数据集应用
+                  </button>
+                </div>
+
+                <div class="derived-section">
+                  <div class="muted" style="margin-bottom: 6px">
+                    当前派生列：
+                  </div>
+                  <div id="derivedList" class="derived-list"></div>
+                </div>
+
+                <p id="formulaInfo" class="muted"></p>
+              </details>
+
+              <div class="pager">
+                <button id="datasetPrev" class="ghost" disabled>上一页</button
+                ><span id="datasetPage"></span
+                ><button id="datasetNext" class="ghost" disabled>下一页</button>
+              </div>
+            </section>
+          </div>
+        </div>
+        <div id="toast" role="status" aria-live="polite"></div>
+        <div class="title">
+          <span id="keyword" class="kw">暂无作品</span>
+          <span id="keywordId" class="muted"></span>
+        </div>
+        <div class="ai-filter-bar">
+          <div id="aiFilter" class="ai-filter" role="group" aria-label="AI 筛选">
+            <button type="button" data-value="" aria-pressed="true">全部</button>
+            <button type="button" data-value="是" aria-pressed="false">AI</button>
+            <button type="button" data-value="否" aria-pressed="false">非 AI</button>
+          </div>
+        </div>
+        <div class="split">
+          <section class="card">
+            <form id="searchForm" class="search">
+              <input
+                id="qMain"
+                aria-label="搜索作品"
+                placeholder="作品标题 / ID / 作者 / 采集标签"
+                maxlength="100"
+              /><input
+                id="qSub"
+                aria-label="作品标签"
+                placeholder="作品标签（精确匹配）"
+                maxlength="100"
+              /><button type="submit">检索</button
+              ><button id="qReset" class="ghost" type="button">重置</button>
+            </form>
+            <div id="searchInfo" class="muted" role="status"></div>
+            <div class="tools">
+              <span>已下载图片：<b id="imgCount">0</b> 张</span
+              ><span
+                ><button class="ghost" id="downloadImage" disabled>下载</button
+                ><button class="ghost" id="prevBtn" disabled>上一作品</button
+                ><button id="nextBtn" disabled>下一作品</button></span
+              >
+            </div>
+            <figure>
+              <img id="preview" alt="当前作品的已下载图片" hidden />
+              <video id="videoPreview" controls preload="metadata" hidden></video>
+              <div id="imageEmpty" class="empty">选择数据集查看作品</div>
+              <figcaption id="caption" class="muted"></figcaption>
+            </figure>
+            <div class="pager">
+              <button id="prevImage" class="ghost" disabled>上一张</button
+              ><a
+                id="sourceLink"
+                target="_blank"
+                rel="noopener noreferrer"
+                hidden
+                >查看 Pixiv 来源</a
+              ><button id="nextImage" class="ghost" disabled>下一张</button>
+            </div>
+          </section>
+          <section class="card">
+            <h2>作品详情与核心数据</h2>
+            <div id="artworkDetails" aria-live="polite"></div>
+            <div id="bars" class="bars"></div>
+          </section>
+        </div>
+      </main>
+    </div>
+    <noscript>请启用 JavaScript 以使用采集和清洗控制台。</noscript>
+
+    <dialog id="settingsDialog" class="settings-dialog" aria-labelledby="settingsTitle" aria-describedby="settingsHint">
+      <header class="settings-head">
+        <div class="settings-head-text">
+          <h2 id="settingsTitle">环境配置</h2>
+          <p id="settingsPath" class="muted"></p>
+        </div>
+        <button id="settingsClose" class="ghost" type="button" aria-label="关闭设置">×</button>
+      </header>
+      <form id="settingsForm">
+        <div id="settingsGroups" class="settings-body"></div>
+        <footer class="settings-footer">
+          <p id="settingsHint" class="muted">
+            配置在服务启动时一次性加载，保存后需<strong>重启服务</strong>才能生效。
+          </p>
+          <p id="settingsError" class="error" role="status" hidden></p>
+          <div class="settings-actions">
+            <button id="settingsCancel" class="ghost" type="button">取消</button>
+            <button id="settingsSave" class="primary" type="submit">保存</button>
+          </div>
+        </footer>
+      </form>
+    </dialog>
+  </body>
+</html>
